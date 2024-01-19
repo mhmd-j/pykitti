@@ -8,7 +8,7 @@ import pandas as pd
 
 import numpy as np
 
-import pykitti.utils as utils
+import pykitti.pykitti.utils as utils
 import cv2
 
 try:
@@ -36,9 +36,11 @@ class tracking:
         self._get_file_lists()
         print('files', len(self.cam2_files))
         # Pre-load data that isn't returned as a generator
-        # self._load_calib()
+        self._load_calib()
+        self._load_oxts()
+        self._generate_timestamps()
 
-    def __len__(self):
+    def __len__(self): #FIXME: This is not correct
         """Return the number of frames loaded."""
         return len(self.timestamps)
 
@@ -108,6 +110,11 @@ class tracking:
                         'velodyne',
                         self.sequence,
                          '*.bin')))
+        
+        self.oxts_files = sorted(glob.glob(
+            os.path.join(self.base_path,
+                        'oxts',
+                         f'{self.sequence}.txt')))
 
         # Subselect the chosen range of frames, if any
         if self.frames is not None:
@@ -129,8 +136,7 @@ class tracking:
         data = {}
 
         # Load the calibration file
-        # calib_filepath = os.path.join(self.sequence_path + '.txt', 'calib.txt')
-        calib_filepath = os.path.join(self.base_path, 'calib', self.sequence + '.txt')
+        calib_filepath = os.path.join(self.base_path,'calib', f'{self.sequence}.txt')
         filedata = utils.read_calib_file(calib_filepath)
 
         # Create 3x4 projection matrices
@@ -153,11 +159,16 @@ class tracking:
         T3[0, 3] = P_rect_30[0, 3] / P_rect_30[0, 0]
 
         # Compute the velodyne to rectified camera coordinate transforms
-        data['T_cam0_velo'] = np.reshape(filedata['Tr_velo_cam'], (3, 4))
-        data['T_cam0_velo'] = np.vstack([data['T_cam0_velo'], [0, 0, 0, 1]])
-        data['T_cam1_velo'] = T1.dot(data['T_cam0_velo'])
-        data['T_cam2_velo'] = T2.dot(data['T_cam0_velo'])
-        data['T_cam3_velo'] = T3.dot(data['T_cam0_velo'])
+        # data['T_cam0_velo'] = np.reshape(filedata['Tr'], (3, 4))
+        # data['T_cam0_velo'] = np.vstack([data['T_cam0_velo'], [0, 0, 0, 1]])
+        # data['T_cam1_velo'] = T1.dot(data['T_cam0_velo'])
+        # data['T_cam2_velo'] = T2.dot(data['T_cam0_velo'])
+        # data['T_cam3_velo'] = T3.dot(data['T_cam0_velo'])
+        Tr_velo_cam = np.reshape(filedata['Tr_velo_cam'], (3, 4))
+        data['Tr_velo_cam'] = np.vstack([Tr_velo_cam, [0, 0, 0, 1]])
+
+        Tr_imu_velo = np.reshape(filedata['Tr_imu_velo'], (3, 4))
+        data['Tr_imu_velo'] = np.vstack([Tr_imu_velo, [0, 0, 0, 1]])
 
         # Compute the camera intrinsics
         data['K_cam0'] = P_rect_00[0:3, 0:3]
@@ -168,16 +179,23 @@ class tracking:
         # Compute the stereo baselines in meters by projecting the origin of
         # each camera frame into the velodyne frame and computing the distances
         # between them
-        p_cam = np.array([0, 0, 0, 1])
-        p_velo0 = np.linalg.inv(data['T_cam0_velo']).dot(p_cam)
-        p_velo1 = np.linalg.inv(data['T_cam1_velo']).dot(p_cam)
-        p_velo2 = np.linalg.inv(data['T_cam2_velo']).dot(p_cam)
-        p_velo3 = np.linalg.inv(data['T_cam3_velo']).dot(p_cam)
+        # p_cam = np.array([0, 0, 0, 1])
+        # p_velo0 = np.linalg.inv(data['T_cam0_velo']).dot(p_cam)
+        # p_velo1 = np.linalg.inv(data['T_cam1_velo']).dot(p_cam)
+        # p_velo2 = np.linalg.inv(data['T_cam2_velo']).dot(p_cam)
+        # p_velo3 = np.linalg.inv(data['T_cam3_velo']).dot(p_cam)
 
-        data['b_gray'] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
-        data['b_rgb'] = np.linalg.norm(p_velo3 - p_velo2)   # rgb baseline
+        # data['b_gray'] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
+        # data['b_rgb'] = np.linalg.norm(p_velo3 - p_velo2)   # rgb baseline
 
         self.calib = namedtuple('CalibData', data.keys())(*data.values())
+    
+    def _load_oxts(self):
+        """Load OXTS data from file."""
+        self.oxts = utils.load_oxts_packets_and_poses(self.oxts_files)
+    
+    def _generate_timestamps(self, assumed_fps = 9.6):
+        self.timestamps = np.arange(len(self.cam2_files)) / assumed_fps
 
 def to_array_list(df, length=None, by_id=True):
     """Converts a dataframe to a list of arrays, with one array for every unique index entry.

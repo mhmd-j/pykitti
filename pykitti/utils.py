@@ -71,10 +71,10 @@ def read_calib_file(filepath):
 
     with open(filepath, 'r') as f:
         for line in f.readlines():
-            try:
+            if ':' not in line:
+                key, value = line.split(' ',1)
+            else:
                 key, value = line.split(':', 1)
-            except ValueError:
-                key, value = line.split(' ', 1)
             # The only non-float values in these files are dates, which
             # we don't care about anyway
             try:
