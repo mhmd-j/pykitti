@@ -40,9 +40,9 @@ class tracking:
         self._load_oxts()
         self._generate_timestamps()
 
-    def __len__(self): #FIXME: This is not correct
+    def __len__(self):
         """Return the number of frames loaded."""
-        return len(self.timestamps)
+        return len(self.velo_files)
 
     @property
     def cam2(self):
